@@ -42,24 +42,43 @@ For the sake of this tutorial, here is the code for an ERC-20 token contract:
 
 ```solidity
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.8;
+pragma solidity ^0.8.0;
 
+/**
+ * @title OxToken
+ * @dev Simple ERC20 Token example, where all tokens are pre-assigned to the creator.
+ * Note they can later distribute these tokens as they wish using `transfer` and other
+ * `ERC20` functions.
+ */
 contract OxToken {
-    string public name = "Ox Token";
-    string public symbol = "OXT";
+    // Token public properties
+    string public name;
+    string public symbol;
     uint256 public totalSupply;
 
+    // Mapping of balance and allowances
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
 
+    // Events declaration
     event Transfer(address indexed from, address indexed to, uint256 value);
     event Approval(address indexed owner, address indexed spender, uint256 value);
 
-    constructor(uint256 _totalSupply) {
-        balanceOf[msg.sender] = _totalSupply;
-        totalSupply = _totalSupply;
+    /**
+     * @dev Constructor that gives msg.sender all of existing tokens.
+     */
+    constructor(string memory _name, string memory _symbol, uint256 _totalSupply) {
+        name = _name; // Set the name for display purposes
+        symbol = _symbol; // Set the symbol for display purposes
+        totalSupply = _totalSupply; // Update total supply with the decimal amount
+        balanceOf[msg.sender] = _totalSupply; // Give the creator all initial tokens
     }
 
+    /**
+     * @dev Transfer token for a specified address
+     * @param _to The address to transfer to.
+     * @param _value The amount to be transferred.
+     */
     function transfer(address _to, uint256 _value) public returns (bool success) {
         require(balanceOf[msg.sender] >= _value, "Insufficient balance");
         balanceOf[msg.sender] -= _value;
@@ -68,12 +87,23 @@ contract OxToken {
         return true;
     }
 
+    /**
+     * @dev Approve the passed address to spend the specified amount of tokens on behalf of msg.sender.
+     * @param _spender The address which will spend the funds.
+     * @param _value The amount of tokens to be spent.
+     */
     function approve(address _spender, uint256 _value) public returns (bool success) {
         allowance[msg.sender][_spender] = _value;
         emit Approval(msg.sender, _spender, _value);
         return true;
     }
 
+    /**
+     * @dev Transfer tokens from one address to another
+     * @param _from address The address which you want to send tokens from
+     * @param _to address The address which you want to transfer to
+     * @param _value uint256 the amount of tokens to be transferred
+     */
     function transferFrom(address _from, address _to, uint256 _value) public returns (bool success) {
         require(balanceOf[_from] >= _value, "Insufficient balance");
         require(allowance[_from][msg.sender] >= _value, "Insufficient allowance");
@@ -84,6 +114,8 @@ contract OxToken {
         return true;
     }
 }
+
+   
 ```
 
 The smart contract above implements the ERC-20 token standard, which is a popular standard used for creating fungible tokens on the Ethereum blockchain. The ERC-20 standard defines a set of functions and events that a smart contract must implement in order to be considered an ERC-20 compliant token.
@@ -121,76 +153,58 @@ npm install -g echidna-test-runner
 2. Create a new file named test.js in the root directory of your project where you will write the code for testing the smart contract.
 
 ```javascript
-const { assert } = require('chai');
-const ethers = require('ethers');
-const { echidna } = require('@trailofbits/echidna');
+const { expect } = require("chai");
 
-describe("OxToken Test Suit" () => {
+// Describes the test suite for the OxToken contract
+describe("OxToken Test Suite", function () {
   let OxToken, oxToken;
+  let owner, recipient, spender;
 
-  beforeEach(async () => {
-    OxToken = await ethers.getContractFactory('OxToken');
-    oxToken = await OxToken.deploy('Ox Token', 'OTK', 10000);
+  // This runs before each test, deploying a new instance of the OxToken contract
+  beforeEach(async function () {
+    [owner, recipient, spender] = await ethers.getSigners();
+    OxToken = await ethers.getContractFactory("OxToken");
+    oxToken = await OxToken.deploy("Ox Token", "OXT", 10000);
     await oxToken.deployed();
   });
 
-  it("should set the correct name, symbol and total supply", async () => {
+  // Test case for verifying correct token details
+  it("should set the correct name, symbol, and total supply", async function () {
     const name = await oxToken.name();
     const symbol = await oxToken.symbol();
     const totalSupply = await oxToken.totalSupply();
 
-    assert.equal(name, 'Ox Token', 'Incorrect name');
-    assert.equal(symbol, 'OTK', 'Incorrect symbol');
-    assert.equal(totalSupply, 10000, 'Incorrect total supply');
+    expect(name).to.equal("Ox Token");
+    expect(symbol).to.equal("OXT");
+    expect(totalSupply).to.equal(10000);
   });
 
-  it("should transfer tokens between accounts", async () => {
-    const [owner, recipient] = await ethers.getSigners();
-
+  // Test case for token transfer functionality
+  it("should transfer tokens between accounts", async function () {
     await oxToken.transfer(recipient.address, 100);
     const balanceRecipient = await oxToken.balanceOf(recipient.address);
+    expect(balanceRecipient).to.equal(100);
 
-    assert.equal(balanceRecipient, 100, 'Incorrect balance for recipient');
-    
     const balanceOwner = await oxToken.balanceOf(owner.address);
-
-    assert.equal(balanceOwner, 9900, 'Incorrect balance for owner');
+    expect(balanceOwner).to.equal(9900);
   });
 
-  it("should fail if trying to transfer more tokens than the balance", async () => {
-    const [owner, recipient] = await ethers.getSigners();
-
-    await assert.revert(oxToken.transfer(recipient.address, 101), 'Transfer amount exceeds balance');
+  // Test case for transfer failure when the balance is insufficient
+  it("should fail if trying to transfer more tokens than the balance", async function () {
+    // The revertWith helper is used to assert for transaction reversion with a specific error message
+    await expect(oxToken.transfer(recipient.address, 11000)).to.be.revertedWith("Insufficient balance");
   });
 
-  it("should approve and transfer tokens from an approved spender", async () => {
-    const owner = await oxToken.owner();
-    const spender = ethers.Wallet.createRandom().address;
-    const recipient = ethers.Wallet.createRandom().address;
+  // Test case for approving and then transferring tokens from an approved spender
+  it("should approve and then transfer tokens from an approved spender", async function () {
+    await oxToken.approve(spender.address, 100);
+    await oxToken.connect(spender).transferFrom(owner.address, recipient.address, 100);
+    const balance = await oxToken.balanceOf(recipient.address);
 
-    await oxToken.approve(spender, 100);
-    await oxToken.connect(ethers.provider.getSigner(spender)).transferFrom(owner, recipient, 100);
-    const balance = await oxToken.balanceOf(recipient);
-
-    assert.equal(balance, 100, 'Incorrect balance');
+    expect(balance).to.equal(100);
   });
 });
 
-describe("OxToken - Echidna", function () {
-  let contract;
-
-  beforeEach(async () => {
-    const OxToken = await ethers.getContractFactory('OxToken');
-    contract = await echidna.init(OxToken, 10000);
-  });
-
-  it("should maintain the total supply", async () => {
-    await contract.methods.transfer(ethers.constants.AddressZero, 1);
-    const totalSupply = await contract.methods.totalSupply().call();
-
-    assert.equal(totalSupply, 10000, 'Incorrect total supply');
-  });
-});
 ```
 
 Let's go through the code together.
